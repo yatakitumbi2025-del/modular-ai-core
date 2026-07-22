@@ -22,7 +22,7 @@ import embed  # semantic embeddings + cosine
 # ---- Config -------------------------------------------------------------
 GITHUB_USER = "yatakitumbi2025-del"
 REPO = "modular-ai-packs"
-CDN_BASE = f"https://cdn.jsdelivr.net/gh/{GITHUB_USER}/{REPO}"
+CDN_BASE = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO}/main"
 REGISTRY_URL = f"{CDN_BASE}/registry/index.json"
 CACHE_FILE = Path(__file__).parent / "routing_cache.json"
 
