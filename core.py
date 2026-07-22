@@ -98,7 +98,7 @@ def answer(question, table):
     else:
         tool_names = result["tools"]
         extra = f", tools: {', '.join(tool_names)}" if tool_names else ""
-        print(f"(domain: {result['domain']}{extra})")
+        active = " + ".join(result.get("domains", [result["domain"]])); print(f"(domain: {active}{extra})")
         system = result["context"]["system"]
         user = result["context"]["user"]
         can_run = "code_runner" in tool_names

@@ -212,3 +212,68 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ===== multi-domain merging (overrides the single-pack versions above) =====
+SECONDARY_RATIO = 0.75
+MAX_SECONDARY = 2
+
+
+def assemble(pack_data, retrieved, question, secondary=None):
+    parts = [pack_data["prompt"].strip()]
+    if secondary:
+        names = ", ".join(p["name"] for p in secondary)
+        parts.append(
+            f"This task also draws on the {names} module(s). Apply their standards "
+            "too where they are relevant, and say which domain a given claim comes "
+            "from when it is not obvious."
+        )
+    if retrieved:
+        lines = [f"- [{d}] {c}" for d, c in retrieved]
+        parts.append("Relevant reference material:\n" + "\n".join(lines))
+    if pack_data.get("examples"):
+        parts.append(
+            "The text between <EXAMPLES> tags below shows the desired STYLE only. "
+            "It is NOT the user's question. Do not answer it, repeat it, or invent "
+            "new question/answer pairs from it.\n"
+            "<EXAMPLES>\n" + pack_data["examples"].strip() + "\n</EXAMPLES>"
+        )
+    parts.append(
+        "Now answer ONLY the user's actual question below, in your own words, "
+        "matching the style above. Do not write 'Q:' or 'A:' labels, and do not "
+        "add extra questions of your own."
+    )
+    return {"system": "\n\n".join(parts), "user": question}
+
+
+def build_context(question, table, refresh=False):
+    results = router.route(question, table)
+    if not results:
+        return None
+    top_domain, top_score = results[0][0], results[0][1]
+    secondary_ids = []
+    for domain, score, _ in results[1:]:
+        if top_score > 0 and score >= top_score * SECONDARY_RATIO:
+            secondary_ids.append(domain)
+        if len(secondary_ids) >= MAX_SECONDARY:
+            break
+    primary = load_pack(top_domain, refresh=refresh)
+    secondary = [load_pack(d, refresh=refresh) for d in secondary_ids]
+    retrieved = [(top_domain, c) for c in retrieve(question, primary["chunks"], k=2)]
+    for pack in secondary:
+        retrieved += [(pack["id"], c) for c in retrieve(question, pack["chunks"], k=1)]
+    tools = []
+    for pack in [primary] + secondary:
+        for t in pack.get("tools", []):
+            n = t.get("name")
+            if n and n not in tools:
+                tools.append(n)
+    context = assemble(primary, retrieved, question, secondary=secondary)
+    return {
+        "domain": top_domain,
+        "domains": [top_domain] + secondary_ids,
+        "also_matched": [d for d, _, _ in results[1:] if d not in secondary_ids],
+        "tools": tools,
+        "retrieved_count": len(retrieved),
+        "context": context,
+    }
