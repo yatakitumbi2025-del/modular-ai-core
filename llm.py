@@ -32,7 +32,7 @@ API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # A strong, free-tier model good for coding. If you get a 404, list models
 # (see step 3) and pick another, e.g. a Qwen or GPT-OSS variant.
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "openai/gpt-oss-120b"
 
 
 def generate(system, user, model=MODEL):

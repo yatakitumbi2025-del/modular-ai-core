@@ -23,6 +23,7 @@ import urllib.error
 from pathlib import Path
 
 import router  # reuse fetch_json, CDN_BASE, tokenize, route, build_routing_table
+import embed   # real semantic embeddings (Jina) + cosine similarity
 
 CACHE_DIR = Path(__file__).parent / "pack_cache"
 
@@ -71,8 +72,8 @@ def load_pack(domain_id, refresh=False):
 
 
 # ---- Retrieve the most relevant knowledge chunks -----------------------
-def retrieve(question, chunks, k=2):
-    """PLACEHOLDER: keyword-overlap ranking. Swap for vector search later."""
+def _keyword_retrieve(question, chunks, k):
+    """Fallback: keyword overlap, used only if a pack still has placeholder vectors."""
     q_words = router.tokenize(question)
     scored = []
     for c in chunks:
@@ -83,18 +84,64 @@ def retrieve(question, chunks, k=2):
     return [text for _, text in scored[:k]]
 
 
+def retrieve(question, chunks, k=2):
+    """Return the k most semantically similar chunks to the question.
+
+    Embeds the question with the same model the pack vectors were built with,
+    then ranks chunks by cosine similarity. Falls back to keyword overlap if the
+    pack still carries placeholder vectors (so an un-rebuilt pack won't break).
+    """
+    if not chunks:
+        return []
+
+    # Real vectors are 512-dim; placeholders were length 8. Guard against mixing.
+    real_vectors = all(
+        isinstance(c.get("vector"), list) and len(c["vector"]) == embed.DIM
+        for c in chunks
+    )
+    if not real_vectors:
+        router._warn_degraded("pack has placeholder vectors — run build_vectors.py")
+        return _keyword_retrieve(question, chunks, k)
+
+    try:
+        q_vec = embed.embed(question)
+    except Exception as e:
+        router._warn_degraded(e)
+        return _keyword_retrieve(question, chunks, k)
+
+    scored = [(embed.cosine(q_vec, c["vector"]), c["text"]) for c in chunks]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [text for _, text in scored[:k]]
+
+
 # ---- Assemble the model-ready context ----------------------------------
 def assemble(pack_data, retrieved, question):
-    system = pack_data["prompt"].strip()
+    parts = [pack_data["prompt"].strip()]
 
     if retrieved:
-        system += "\n\nRelevant reference material:\n"
-        for chunk in retrieved:
-            system += f"- {chunk}\n"
+        parts.append(
+            "Relevant reference material:\n"
+            + "\n".join(f"- {chunk}" for chunk in retrieved)
+        )
 
     if pack_data.get("examples"):
-        system += "\n\n" + pack_data["examples"].strip()
+        # Fence the examples and state plainly that they are NOT the question.
+        # Small models otherwise treat the Q/A pairs as a chat to continue,
+        # leaking made-up questions into the answer.
+        parts.append(
+            "The text between <EXAMPLES> tags below shows the desired STYLE only. "
+            "It is NOT the user's question. Do not answer it, repeat it, or invent "
+            "new question/answer pairs from it.\n"
+            "<EXAMPLES>\n" + pack_data["examples"].strip() + "\n</EXAMPLES>"
+        )
 
+    parts.append(
+        "Now answer ONLY the user's actual question below, in your own words, "
+        "matching the style above. Do not write 'Q:' or 'A:' labels, and do not "
+        "add extra questions of your own."
+    )
+
+    system = "\n\n".join(parts)
     return {"system": system, "user": question}
 
 
