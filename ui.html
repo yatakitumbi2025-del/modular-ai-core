@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1014">
+<title>Modular AI</title>
+<style>
+:root{
+  --ink:#0d1014;
+  --raise:#151a21;
+  --sunk:#0a0c10;
+  --line:#232a34;
+  --line-soft:#1a2028;
+  --text:#e9ecf1;
+  --dim:#798394;
+  --faint:#4d5666;
+  --accent:#f0a868;
+  --ok:#5fcf9e;
+  --bad:#ef7d7d;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"JetBrains Mono","Roboto Mono",SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;background:var(--ink);color:var(--text);
+  font:16px/1.6 var(--sans);
+  display:flex;flex-direction:column;height:100dvh;overflow:hidden;
+}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- header ---------- */
+header{
+  flex:0 0 auto;display:flex;align-items:center;gap:12px;
+  padding:calc(12px + env(safe-area-inset-top)) 18px 12px;
+  border-bottom:1px solid var(--line-soft);background:var(--ink);
+}
+.wordmark{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.wordmark span{color:var(--dim);font-weight:400}
+.icon-btn{
+  margin-left:auto;background:none;border:0;padding:6px;
+  color:var(--dim);cursor:pointer;display:flex;border-radius:8px;
+}
+.icon-btn:active{color:var(--text)}
+
+/* ---------- key warning ---------- */
+#alert{
+  display:none;flex:0 0 auto;padding:9px 18px;
+  font:12px/1.4 var(--mono);color:#f4c48a;
+  background:#211a12;border-bottom:1px solid #33281a;
+}
+#alert.on{display:block}
+
+/* ---------- thread ---------- */
+#thread{
+  flex:1 1 auto;overflow-y:auto;overscroll-behavior:contain;
+  padding:24px 18px 8px;
+}
+#empty{
+  height:100%;display:flex;flex-direction:column;
+  align-items:flex-start;justify-content:flex-end;padding-bottom:12px;gap:10px;
+}
+#empty h2{margin:0;font-size:26px;line-height:1.25;font-weight:500;letter-spacing:-.02em}
+#empty p{margin:0;font:12px/1.5 var(--mono);color:var(--faint);letter-spacing:.04em}
+
+.turn{margin-bottom:26px;animation:rise .18s ease-out}
+@keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.ask{
+  margin-left:auto;max-width:85%;width:fit-content;
+  background:var(--raise);border:1px solid var(--line-soft);
+  border-radius:16px 16px 4px 16px;padding:10px 14px;
+  white-space:pre-wrap;word-break:break-word;
+}
+
+/* the signature: a dispatch stamp above every answer */
+.route{
+  display:flex;align-items:center;gap:10px;margin-bottom:10px;
+  font:11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+  color:var(--accent);
+}
+.route .rule{flex:1;height:1px;background:var(--line-soft)}
+.route .tools{color:var(--faint);letter-spacing:.1em}
+.reply{white-space:pre-wrap;word-break:break-word}
+.reply.err{color:var(--bad);font-family:var(--mono);font-size:13px;white-space:pre-wrap}
+
+.pending{font:13px/1 var(--mono);color:var(--dim);letter-spacing:.08em}
+.pending::after{content:"▌";animation:blink 1s steps(2) infinite;margin-left:2px}
+@keyframes blink{50%{opacity:0}}
+
+/* ---------- code ---------- */
+.code{
+  margin:14px 0;border:1px solid var(--line);border-radius:12px;
+  background:var(--sunk);overflow:hidden;
+}
+.code pre{
+  margin:0;padding:14px;overflow-x:auto;
+  font:13px/1.65 var(--mono);color:#dbe3ef;
+}
+.code footer{
+  display:flex;align-items:center;gap:12px;
+  padding:8px 12px;border-top:1px solid var(--line-soft);
+}
+.run{
+  background:none;border:1px solid var(--line);color:var(--text);
+  font:12px/1 var(--mono);letter-spacing:.06em;
+  padding:7px 12px;border-radius:8px;cursor:pointer;
+}
+.run:active{background:var(--raise)}
+.run:disabled{opacity:.5}
+.verdict{font:12px/1 var(--mono);letter-spacing:.04em}
+.verdict.ok{color:var(--ok)}
+.verdict.bad{color:var(--bad)}
+.stream{
+  padding:0 14px 14px;margin:0;overflow-x:auto;
+  font:12px/1.6 var(--mono);color:var(--dim);white-space:pre-wrap;
+}
+.stream b{color:var(--faint);font-weight:400}
+
+/* ---------- composer ---------- */
+#composer{
+  flex:0 0 auto;display:flex;align-items:flex-end;gap:10px;
+  padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line-soft);background:var(--ink);
+}
+#q{
+  flex:1;resize:none;max-height:140px;
+  background:var(--raise);color:var(--text);
+  border:1px solid var(--line);border-radius:14px;
+  padding:12px 14px;font:15px/1.45 var(--sans);
+}
+#q::placeholder{color:var(--faint)}
+#send{
+  flex:0 0 auto;width:44px;height:44px;border:0;border-radius:14px;
+  background:var(--accent);color:#20140a;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+#send:disabled{opacity:.35}
+
+/* ---------- settings sheet ---------- */
+#scrim{
+  position:fixed;inset:0;background:rgba(4,6,9,.6);
+  opacity:0;pointer-events:none;transition:opacity .2s;z-index:5;
+}
+#scrim.on{opacity:1;pointer-events:auto}
+#sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:6;
+  max-height:88dvh;overflow-y:auto;
+  background:var(--raise);border-top:1px solid var(--line);
+  border-radius:20px 20px 0 0;
+  padding:0 20px calc(24px + env(safe-area-inset-bottom));
+  transform:translateY(101%);transition:transform .24s cubic-bezier(.32,.72,0,1);
+}
+#sheet.on{transform:none}
+.grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:10px auto 18px}
+.sec{padding:18px 0;border-top:1px solid var(--line-soft)}
+.sec:first-of-type{border-top:0;padding-top:0}
+.sec h3{
+  margin:0 0 12px;font:11px/1 var(--mono);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);
+}
+.row{
+  display:flex;align-items:center;gap:12px;
+  padding:11px 0;border-bottom:1px solid var(--line-soft);
+  font:13px/1.3 var(--mono);
+}
+.row:last-child{border-bottom:0}
+.row .val{margin-left:auto;color:var(--dim);text-align:right}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.dot.ok{background:var(--ok)}
+.dot.bad{background:var(--bad)}
+.hint{margin:10px 0 0;font-size:12.5px;line-height:1.5;color:var(--faint)}
+label{display:block;margin:14px 0 6px;font:11px/1 var(--mono);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--faint)}
+input[type=password],input[type=text]{
+  width:100%;background:var(--sunk);color:var(--text);
+  border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;font:13px/1.3 var(--mono);
+}
+.btn{
+  width:100%;margin-top:14px;padding:13px;border-radius:11px;cursor:pointer;
+  border:1px solid var(--line);background:var(--sunk);color:var(--text);
+  font:13px/1 var(--mono);letter-spacing:.06em;
+}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#20140a}
+.btn:disabled{opacity:.5}
+.note{margin-top:12px;font:12px/1.4 var(--mono);color:var(--dim);min-height:16px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">Modular <span>AI</span></div>
+  <button class="icon-btn" id="gear" aria-label="Open settings">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <circle cx="12" cy="12" r="3.2"/>
+      <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-2.72 1.13V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.1 19.4a1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 3 15.1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.46-1.02 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 8.9 4.6H9a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.72 1.13l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.6 1.6 0 0 0 20.9 11H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>
+    </svg>
+  </button>
+</header>
+
+<div id="alert"></div>
+
+<main id="thread">
+  <div id="empty">
+    <h2>Ask anything.</h2>
+    <p id="emptyMeta">loading packs…</p>
+  </div>
+</main>
+
+<div id="composer">
+  <textarea id="q" rows="1" placeholder="Ask a question…" enterkeyhint="send"></textarea>
+  <button id="send" aria-label="Send">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 19V5M5 12l7-7 7 7"/>
+    </svg>
+  </button>
+</div>
+
+<div id="scrim"></div>
+<section id="sheet" role="dialog" aria-label="Settings" aria-modal="true">
+  <div class="grab"></div>
+
+  <div class="sec">
+    <h3>Packs</h3>
+    <div id="packs"></div>
+    <button class="btn" id="reload">Reload packs</button>
+    <p class="hint">Packs are fetched from your GitHub repo and cached. Reload after pushing a change.</p>
+  </div>
+
+  <div class="sec">
+    <h3>Engine</h3>
+    <div class="row">model<span class="val" id="model">—</span></div>
+    <div class="row"><span class="dot" id="dGroq"></span>groq<span class="val" id="vGroq">—</span></div>
+    <div class="row"><span class="dot" id="dJina"></span>jina<span class="val" id="vJina">—</span></div>
+  </div>
+
+  <div class="sec">
+    <h3>API keys</h3>
+    <label for="kGroq">Groq</label>
+    <input id="kGroq" type="password" placeholder="gsk_…" autocomplete="off">
+    <label for="kJina">Jina</label>
+    <input id="kJina" type="password" placeholder="jina_…" autocomplete="off">
+    <button class="btn primary" id="saveKeys">Save keys</button>
+    <p class="note" id="keyNote"></p>
+    <p class="hint">Keys stay in this server process. They are not written to disk.</p>
+  </div>
+
+  <div class="sec">
+    <button class="btn" id="close">Close</button>
+  </div>
+</section>
+
+<script>
+const $ = s => document.querySelector(s);
+const thread = $('#thread'), q = $('#q'), send = $('#send');
+
+function el(tag, cls, text){
+  const n = document.createElement(tag);
+  if(cls) n.className = cls;
+  if(text != null) n.textContent = text;
+  return n;
+}
+function bottom(){ thread.scrollTop = thread.scrollHeight; }
+async function api(path, body){
+  const r = await fetch(path, body ? {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+  } : {});
+  return r.json();
+}
+
+/* ---------- settings ---------- */
+const sheet = $('#sheet'), scrim = $('#scrim');
+function openSheet(){ sheet.classList.add('on'); scrim.classList.add('on'); }
+function closeSheet(){ sheet.classList.remove('on'); scrim.classList.remove('on'); }
+$('#gear').onclick = openSheet;
+$('#close').onclick = closeSheet;
+scrim.onclick = closeSheet;
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeSheet(); });
+
+function paint(s){
+  if(!s) return;
+  const list = $('#packs'); list.innerHTML = '';
+  const domains = s.domains || [];
+  domains.forEach(d => {
+    const row = el('div','row', d);
+    row.appendChild(el('span','val','loaded'));
+    list.appendChild(row);
+  });
+  if(!domains.length) list.appendChild(el('div','row','no packs loaded'));
+
+  $('#emptyMeta').textContent = domains.length
+    ? domains.length + ' packs · routed automatically'
+    : 'no packs loaded — open settings';
+
+  $('#model').textContent = s.model || '—';
+  $('#dGroq').className = 'dot ' + (s.groq ? 'ok' : 'bad');
+  $('#dJina').className = 'dot ' + (s.jina ? 'ok' : 'bad');
+  $('#vGroq').textContent = s.groq ? 'key set' : 'no key';
+  $('#vJina').textContent = s.jina ? 'key set' : 'no key';
+
+  const missing = [];
+  if(!s.groq) missing.push('Groq');
+  if(!s.jina) missing.push('Jina');
+  const alert = $('#alert');
+  alert.textContent = missing.length ? missing.join(' and ') + ' key missing — add it in settings' : '';
+  alert.classList.toggle('on', missing.length > 0);
+}
+
+api('/api/status').then(paint).catch(() => {
+  $('#emptyMeta').textContent = 'server not responding';
+});
+
+$('#reload').onclick = async e => {
+  const b = e.target; b.disabled = true; b.textContent = 'Reloading…';
+  try { paint(await api('/api/refresh', {})); b.textContent = 'Reload packs'; }
+  catch { b.textContent = 'Reload failed — try again'; }
+  b.disabled = false;
+};
+
+$('#saveKeys').onclick = async e => {
+  const b = e.target, note = $('#keyNote');
+  const body = {};
+  if($('#kGroq').value.trim()) body.groq = $('#kGroq').value.trim();
+  if($('#kJina').value.trim()) body.jina = $('#kJina').value.trim();
+  if(!Object.keys(body).length){ note.textContent = 'nothing to save'; return; }
+  b.disabled = true; note.textContent = 'saving…';
+  try {
+    paint(await api('/api/keys', body));
+    $('#kGroq').value = ''; $('#kJina').value = '';
+    note.textContent = 'saved';
+  } catch { note.textContent = 'save failed'; }
+  b.disabled = false;
+};
+
+/* ---------- code blocks ---------- */
+function norm(s){ return (s || '').replace(/\s+/g,' ').trim(); }
+
+function codePanel(src, runnable){
+  const wrap = el('div','code');
+  const pre = el('pre'); pre.appendChild(el('code', null, src));
+  wrap.appendChild(pre);
+  if(!runnable) return wrap;
+
+  const foot = el('footer');
+  const btn = el('button','run','▶ Run');
+  const verdict = el('span','verdict');
+  const out = el('pre','stream');
+  foot.appendChild(btn); foot.appendChild(verdict);
+  wrap.appendChild(foot); wrap.appendChild(out);
+
+  btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = 'Running…';
+    out.textContent = ''; verdict.textContent = ''; verdict.className = 'verdict';
+    try {
+      const r = await api('/api/run', {code: src});
+      const good = r.exit_code === 0;
+      verdict.className = 'verdict ' + (good ? 'ok' : 'bad');
+      verdict.textContent = (r.verdict || (good ? 'ok' : 'failed')) + ' · exit ' + r.exit_code;
+      if(r.stdout && r.stdout.trim()){
+        out.appendChild(el('b', null, 'stdout\n'));
+        out.appendChild(document.createTextNode(r.stdout.trim() + '\n'));
+      }
+      if(r.stderr && r.stderr.trim()){
+        out.appendChild(el('b', null, 'stderr\n'));
+        out.appendChild(document.createTextNode(r.stderr.trim()));
+      }
+    } catch(e){
+      verdict.className = 'verdict bad';
+      verdict.textContent = 'could not reach the runner';
+    }
+    btn.disabled = false; btn.textContent = '▶ Run again';
+    bottom();
+  };
+  return wrap;
+}
+
+/* split an answer into prose and fenced-code segments */
+function segments(text){
+  const parts = [], re = /```[^\n]*\n?([\s\S]*?)```/g;
+  let last = 0, m;
+  while((m = re.exec(text)) !== null){
+    if(m.index > last) parts.push({code:false, body:text.slice(last, m.index)});
+    parts.push({code:true, body:m[1].replace(/\s+$/,'')});
+    last = re.lastIndex;
+  }
+  if(last < text.length) parts.push({code:false, body:text.slice(last)});
+  return parts;
+}
+
+function renderAnswer(box, r){
+  const runnable = (r.blocks || []).map(norm);
+  const shown = new Set();
+  segments(r.answer || '').forEach(seg => {
+    if(seg.code){
+      const isRunnable = runnable.includes(norm(seg.body));
+      if(isRunnable) shown.add(norm(seg.body));
+      box.appendChild(codePanel(seg.body, isRunnable));
+    } else {
+      const t = seg.body.replace(/^\n+|\n+$/g,'');
+      if(t) box.appendChild(el('div','reply', t));
+    }
+  });
+  // any runnable block the answer didn't show in a fence
+  (r.blocks || []).forEach(src => {
+    if(!shown.has(norm(src))) box.appendChild(codePanel(src, true));
+  });
+}
+
+/* ---------- ask ---------- */
+async function ask(){
+  const text = q.value.trim();
+  if(!text) return;
+  q.value = ''; q.style.height = 'auto';
+  const em = $('#empty'); if(em) em.remove();
+
+  const t1 = el('div','turn'); t1.appendChild(el('div','ask', text));
+  thread.appendChild(t1);
+
+  const t2 = el('div','turn');
+  const pending = el('div','pending','routing…');
+  t2.appendChild(pending); thread.appendChild(t2); bottom();
+
+  send.disabled = true;
+  try {
+    const r = await api('/api/ask', {question: text});
+    t2.innerHTML = '';
+    if(r.error){
+      t2.appendChild(el('div','reply err', r.error));
+    } else {
+      const route = el('div','route');
+      route.appendChild(el('span', null, (r.domains || ['general'])[0]));
+      route.appendChild(el('span','rule'));
+      if((r.tools || []).length) route.appendChild(el('span','tools', r.tools.join(' · ')));
+      t2.appendChild(route);
+      renderAnswer(t2, r);
+    }
+  } catch(e){
+    t2.innerHTML = '';
+    t2.appendChild(el('div','reply err','The server did not respond. Is server.py still running in Termux?'));
+  }
+  send.disabled = false;
+  bottom();
+}
+
+send.onclick = ask;
+q.addEventListener('input', () => {
+  q.style.height = 'auto';
+  q.style.height = Math.min(q.scrollHeight, 140) + 'px';
+});
+q.addEventListener('keydown', e => {
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); ask(); }
+});
+</script>
+</body>
+</html>

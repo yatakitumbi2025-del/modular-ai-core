@@ -224,9 +224,12 @@ def assemble(pack_data, retrieved, question, secondary=None):
     if secondary:
         names = ", ".join(p["name"] for p in secondary)
         parts.append(
-            f"This task also draws on the {names} module(s). Apply their standards "
-            "too where they are relevant, and say which domain a given claim comes "
-            "from when it is not obvious."
+            f"This single request has already been routed to multiple modules: "
+            f"{pack_data['name']} plus {names}. You are answering ALL of it "
+            "yourself in this one response -- do not say a part should be handled "
+            "by another module or routed elsewhere, that routing already happened. "
+            "Apply the combined standards of every matched module, and mark which "
+            "module a specific claim draws from when it is not obvious."
         )
     if retrieved:
         lines = [f"- [{d}] {c}" for d, c in retrieved]

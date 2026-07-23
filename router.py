@@ -30,6 +30,8 @@ CACHE_FILE = Path(__file__).parent / "routing_cache.json"
 # to pick a specialist; higher = more likely to use the general fallback.
 # Run `python router.py` to see live scores and tune this if needed.
 ROUTE_THRESHOLD = 0.25
+MARGIN_FLOOR = 0.10
+MARGIN_RATIO = 2.0
 
 
 # ---- Fetch helper -------------------------------------------------------
@@ -117,14 +119,43 @@ def _warn_degraded(err):
         print("!" * 60 + "\n")
 
 
+CHITCHAT = {
+    "thanks", "thank you", "thanks that helped", "ty", "thx",
+    "hello", "hi", "hey", "yo", "ok", "okay", "cool", "nice",
+    "got it", "great", "perfect", "sure", "yes", "no", "yep", "nope",
+    "good morning", "good night", "bye", "goodbye", "sorry",
+    "that helped", "it worked", "works now", "awesome",
+}
+
+def _is_chitchat(question):
+    q = question.lower().strip().strip("!.?,")
+    if q in CHITCHAT:
+        return True
+    words = q.split()
+    if len(words) <= 4 and not any(len(w) > 8 for w in words):
+        if any(w in {"thanks","thank","hello","hi","hey","ok","okay",
+                     "cool","nice","great","bye","sorry","yes","no"}
+               for w in words):
+            return True
+    return False
+
+
 def route(question, table):
     """Return ranked [(domain_id, score, detail), ...]; empty => general fallback."""
+    if _is_chitchat(question):
+        return []
     if all(e.get("vector") for e in table):
         try:
             q_vec = embed.embed(question)
             scored = [(e["id"], embed.cosine(q_vec, e["vector"])) for e in table]
             scored.sort(key=lambda x: x[1], reverse=True)
             hits = [(d, round(s, 3), "semantic") for d, s in scored if s >= ROUTE_THRESHOLD]
+            if not hits and scored:
+                lead_id, lead = scored[0]
+                second = scored[1][1] if len(scored) > 1 else 0.0
+                if lead >= MARGIN_FLOOR and lead >= MARGIN_RATIO * max(second, 1e-6):
+                    hits = [(lead_id, round(lead, 3),
+                             f"margin: {round(lead,3)} vs {round(second,3)}")]
             return hits
         except Exception as e:
             _warn_degraded(e)

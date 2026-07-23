@@ -20,12 +20,41 @@ import os
 import re
 import subprocess
 import tempfile
+import sigcalc
 
 
 def extract_python_blocks(text):
-    """Pull ```python ... ``` (or plain ``` ... ```) fenced code from text."""
-    blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", text, re.DOTALL)
-    return [b.strip() for b in blocks if b.strip()]
+    """Pull fenced code from text, keeping only real Python.
+
+    1. A block is kept only if it parses. That drops pasted program OUTPUT
+       (timing tables, tracebacks) that used to run and raise
+       "invalid decimal literal".
+    2. Surviving blocks are joined into ONE script, so an import in an early
+       block is still in scope later. Previously each ran alone -> NameError.
+    """
+    raw = re.findall(r"```([\w+-]*)[ \t]*\n(.*?)```", text, re.DOTALL)
+    good = []
+    for lang, body in raw:
+        if lang.lower() not in ("python", "py", "python3", ""):
+            continue
+        body = body.strip()
+        if not body:
+            continue
+        try:
+            ast.parse(body)
+        except SyntaxError:
+            continue
+        good.append(body)
+
+    if not good:
+        return []
+
+    script = "\n\n".join(good)
+    try:
+        ast.parse(script)
+    except SyntaxError:
+        return [good[-1]]
+    return [script]
 
 
 def run_python(source, timeout=10):
@@ -81,36 +110,46 @@ _UNARY = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 
 
 def safe_calc(expr):
-    """Evaluate a pure arithmetic expression WITHOUT eval().
+    """Evaluate one arithmetic expression with significant-figure tracking.
 
-    Only numbers, + - * / ** % //, parentheses, and unary +/- are allowed.
-    Anything else (names, function calls, attribute access) is rejected,
-    so a malicious string can't do harm here.
+    Delegates to sigcalc, which parses with ast against an allowlist (no
+    eval) and computes in Decimal. Returns a dict:
+        {"expr", "result", "exact", "rule", "error"}
+    `result` is the sig-fig-correct value as a string, or None on error.
+    This function never raises -- a bad expression must not kill the answer.
     """
-    def _eval(node):
-        if isinstance(node, ast.Expression):
-            return _eval(node.body)
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
-        if isinstance(node, ast.BinOp) and type(node.op) in _BINOPS:
-            return _BINOPS[type(node.op)](_eval(node.left), _eval(node.right))
-        if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY:
-            return _UNARY[type(node.op)](_eval(node.operand))
-        raise ValueError("unsupported expression")
-
-    return _eval(ast.parse(expr, mode="eval"))
+    return sigcalc.calc(expr)
 
 
 def extract_expressions(text):
-    """Pull arithmetic expressions the model wrote (in `backticks` or after 'Expression:')."""
+    """Pull arithmetic expressions the model wrote.
+
+    Three sources, in order of reliability:
+      1. inside backticks
+      2. after an 'Expression:' label
+      3. immediately to the left of an '=' sign, anywhere in prose
+
+    Pattern 3 is the one that matters in practice. A model stating a
+    computed claim writes "4.52 * 3.1 = 14.012" in plain text; it does not
+    reliably use backticks, and asking it to in the prompt is a request it
+    can ignore. Reading what it actually wrote is not.
+
+    `e`/`E` are permitted so scientific notation (1.00e2) survives -- that
+    is how a measured value declares its significant figures. Newlines are
+    excluded from the charset so a match cannot run across lines.
+    """
+    charset = r"[0-9eE()._+\-*/%\t ]"
+
     candidates = re.findall(r"`([^`]+)`", text)
-    candidates += re.findall(r"[Ee]xpression:?\s*([0-9().+\-*/%\s]+)", text)
+    candidates += re.findall(r"[Ee]xpression:?[\t ]*(" + charset + r"+)", text)
+    candidates += re.findall(r"([0-9(]" + charset + r"*?)[\t ]*=", text)
 
     exprs, seen = [], set()
     for c in candidates:
         c = c.strip().rstrip(".")
-        # must be purely arithmetic, contain a digit AND an operator
-        if (re.fullmatch(r"[0-9().+\-*/%\s]+", c)
+        if len(c) > 120:
+            continue
+        if (re.fullmatch(charset + r"+", c)
                 and re.search(r"\d", c) and re.search(r"[+\-*/%]", c)
                 and c not in seen):
             seen.add(c)
@@ -119,7 +158,22 @@ def extract_expressions(text):
 
 
 def format_calc(results):
+    """Render calculator output.
+
+    Accepts the dicts returned by safe_calc, and still tolerates a bare
+    number in case something older calls this.
+    """
     lines = ["[calculator]"]
     for expr, val in results:
-        lines.append(f"  {expr} = {val}")
+        if isinstance(val, dict):
+            if val.get("error"):
+                lines.append(f"  {expr} -> could not evaluate: {val['error']}")
+                continue
+            lines.append(f"  {expr} = {val['result']}")
+            if val.get("exact") not in (None, val.get("result")):
+                lines.append(f"      unrounded {val['exact']}  ({val['rule']})")
+        else:
+            lines.append(f"  {expr} = {val}")
     return "\n".join(lines)
+
+
