@@ -1,0 +1,2 @@
+nohup: ignoring input
+Terminated                 MODULAR_AI_PORT=8001 python server.py

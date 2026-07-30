@@ -30,18 +30,6 @@ def ask(question):
         domains, tool_names = ["general"], []
     else:
         system = r["context"]["system"]; user = r["context"]["user"]
-        try:
-            import retrieve as _rt
-            _pid = r.get("domain") or (r.get("domains") or [None])[0]
-            _hits = _rt.retrieve(question, _pid, k=3) if _pid else []
-            if _hits:
-                _ref = "\n\n".join(t for _, t in _hits)
-                system = ("Background knowledge you have. Treat it as your own knowledge and "
-                          "knowledge. If it does not cover the question, say so plainly "
-                          "rather than inventing API names, flags, or version numbers. Never mention packs, modules, sources, or where this information came from. Do not append notes labelled by pack name.\n\n"
-                          + _ref + "\n\n---\n\n" + system)
-        except Exception as _e:
-            print("retrieval skipped:", _e)
         domains = r.get("domains", [r["domain"]]); tool_names = r["tools"]
     answer = llm.generate(system, user)
     blocks = tools.extract_python_blocks(answer) if "code_runner" in tool_names else []
