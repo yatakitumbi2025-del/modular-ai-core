@@ -284,7 +284,12 @@ def build_context(question, table, refresh=False):
 
 # ===== multi-source (added by patch_multisource.py) =====
 # load_pack now takes the routing-table entry so it knows which repo to fetch
-# from. build_context filters tools through the core's allowlist: a remote
+# from. build_context gates tools by SOURCE only: a remote pack_json may ASK
+# for any tool name, and it is kept if sources.json marks that source
+# allow_tools. Tool NAMES are not validated against an allowlist -- there is
+# no name-to-callable dispatch yet, so an unknown name is inert text in the
+# prompt. If tool dispatch is ever added, add a name allowlist HERE first.
+# The old wording claimed a name allowlist that does not exist.
 # pack.json may ASK for code_runner, but only a source marked allow_tools in
 # sources.json actually gets it.
 
