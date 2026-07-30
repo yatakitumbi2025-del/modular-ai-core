@@ -18,6 +18,7 @@ placeholder that we swap for vector search without changing anything else.
 
 import json
 import sys
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -26,6 +27,10 @@ import router  # reuse fetch_json, CDN_BASE, tokenize, route, build_routing_tabl
 import embed   # real semantic embeddings (Jina) + cosine similarity
 
 CACHE_DIR = Path(__file__).parent / "pack_cache"
+
+# Seconds a cached pack stays valid. Set to 0 to always re-fetch
+# (do this while editing packs). 300 is a reasonable steady-state value.
+CACHE_TTL = 300
 
 
 # ---- Fetch helper for text files (prompt.md, examples.md) --------------
@@ -100,7 +105,7 @@ def retrieve(question, chunks, k=2):
         for c in chunks
     )
     if not real_vectors:
-        router._warn_degraded("pack has placeholder vectors — run build_vectors.py")
+        router._warn_degraded("pack has placeholder vectors — run build_chunks.py --write")
         return _keyword_retrieve(question, chunks, k)
 
     try:
@@ -231,6 +236,13 @@ def assemble(pack_data, retrieved, question, secondary=None):
             "Apply the combined standards of every matched module, and mark which "
             "module a specific claim draws from when it is not obvious."
         )
+        for _sp in secondary:
+            _text = (_sp.get("prompt") or "").strip()
+            if _text:
+                parts.append(
+                    f"--- Binding standards from module: {_sp['name']} ---\n"
+                    f"{_text}"
+                )
     if retrieved:
         lines = [f"- [{d}] {c}" for d, c in retrieved]
         parts.append("Relevant reference material:\n" + "\n".join(lines))
@@ -306,7 +318,9 @@ def load_pack(domain_id, refresh=False, entry=None):
     CACHE_DIR.mkdir(exist_ok=True)
     cache_file = CACHE_DIR / f"{domain_id}.json"
     if cache_file.exists() and not refresh:
-        return json.loads(cache_file.read_text())
+        age = time.time() - cache_file.stat().st_mtime
+        if CACHE_TTL and age < CACHE_TTL:
+            return json.loads(cache_file.read_text())
 
     if entry is None:
         # Fallback: original single-source convention.
@@ -415,8 +429,23 @@ _load_pack_strict = load_pack
 def load_pack(domain_id, refresh=False, entry=None):
     try:
         return _load_pack_strict(domain_id, refresh=refresh, entry=entry)
-    except urllib.error.HTTPError as e:
-        print(f"  pack '{domain_id}' unavailable (HTTP {e.code}) — "
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        reason = f"HTTP {e.code}" if isinstance(e, urllib.error.HTTPError) else e.reason
+
+        # Prefer a stale cache entry over an empty pack. The cache is only
+        # stale because CACHE_TTL expired, not because it is wrong.
+        cache_file = CACHE_DIR / f"{domain_id}.json"
+        if cache_file.exists():
+            print(f"  pack '{domain_id}' fetch failed ({reason}) — "
+                  f"using cached copy")
+            try:
+                data = json.loads(cache_file.read_text())
+                data["degraded"] = "stale-cache"
+                return data
+            except (json.JSONDecodeError, OSError) as ce:
+                print(f"  cached copy unreadable ({ce}) — answering without it")
+
+        print(f"  pack '{domain_id}' unavailable ({reason}) — "
               f"answering without it")
         return {
             "id": domain_id,
@@ -426,4 +455,5 @@ def load_pack(domain_id, refresh=False, entry=None):
             "examples": "",
             "tools": [],
             "chunks": [],
+            "degraded": "no-pack",
         }
