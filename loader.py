@@ -280,3 +280,145 @@ def build_context(question, table, refresh=False):
         "retrieved_count": len(retrieved),
         "context": context,
     }
+
+
+# ===== multi-source (added by patch_multisource.py) =====
+# load_pack now takes the routing-table entry so it knows which repo to fetch
+# from. build_context filters tools through the core's allowlist: a remote
+# pack.json may ASK for code_runner, but only a source marked allow_tools in
+# sources.json actually gets it.
+
+
+def _find_entry(domain_id, table):
+    for e in (table or []):
+        if e.get("id") == domain_id:
+            return e
+    return None
+
+
+def load_pack(domain_id, refresh=False, entry=None):
+    """Fetch and cache one pack. Cache key is the namespaced id."""
+    CACHE_DIR.mkdir(exist_ok=True)
+    cache_file = CACHE_DIR / f"{domain_id}.json"
+    if cache_file.exists() and not refresh:
+        return json.loads(cache_file.read_text())
+
+    if entry is None:
+        # Fallback: original single-source convention.
+        pack_base = f"{router.CDN_BASE}/packs/{domain_id}"
+        manifest = router.fetch_json(f"{pack_base}/pack.json")
+        source_id = "core"
+    else:
+        base = entry["base"]
+        manifest_path = entry.get(
+            "manifest", f"packs/{entry.get('pack_id', domain_id)}/pack.json")
+        manifest = router.fetch_json(f"{base}/{manifest_path}")
+        pack_base = base + "/" + manifest_path.rsplit("/", 1)[0]
+        source_id = entry.get("source", "core")
+
+    files = manifest.get("files", {})
+    data = {
+        "id": domain_id,
+        "source": source_id,
+        "name": manifest.get("name", domain_id),
+        "prompt": "",
+        "examples": "",
+        "tools": manifest.get("tools", []),
+        "chunks": [],
+    }
+
+    if files.get("prompt"):
+        data["prompt"] = fetch_text(f"{pack_base}/{files['prompt']}")
+    if files.get("examples"):
+        data["examples"] = fetch_text(f"{pack_base}/{files['examples']}")
+    if files.get("vectors"):
+        try:
+            vectors = router.fetch_json(f"{pack_base}/{files['vectors']}")
+            data["chunks"] = vectors.get("chunks", [])
+        except urllib.error.HTTPError:
+            pass  # pack has no knowledge base yet - fine
+
+    cache_file.write_text(json.dumps(data, indent=2))
+    return data
+
+
+def build_context(question, table, refresh=False):
+    results = router.route(question, table)
+    if not results:
+        return None
+
+    top_domain, top_score = results[0][0], results[0][1]
+    secondary_ids = []
+    for domain, score, _ in results[1:]:
+        if top_score > 0 and score >= top_score * SECONDARY_RATIO:
+            secondary_ids.append(domain)
+        if len(secondary_ids) >= MAX_SECONDARY:
+            break
+
+    primary = load_pack(top_domain, refresh=refresh,
+                        entry=_find_entry(top_domain, table))
+    secondary = [load_pack(d, refresh=refresh, entry=_find_entry(d, table))
+                 for d in secondary_ids]
+
+    retrieved = [(top_domain, c)
+                 for c in retrieve(question, primary["chunks"], k=2)]
+    for pack in secondary:
+        retrieved += [(pack["id"], c)
+                      for c in retrieve(question, pack["chunks"], k=1)]
+
+    # Tool allowlist lives HERE, in the core - never in the remote pack.
+    try:
+        allow = router.allow_tools_map()
+    except AttributeError:
+        allow = {}
+    tools = []
+    denied = []
+    for pack in [primary] + secondary:
+        pack_source = pack.get("source", "core")
+        for t in pack.get("tools", []):
+            n = t.get("name") if isinstance(t, dict) else t
+            if not n:
+                continue
+            if not allow.get(pack_source, False):
+                if n not in denied:
+                    denied.append(f"{n} (source {pack_source} not trusted)")
+                continue
+            if n not in tools:
+                tools.append(n)
+
+    context = assemble(primary, retrieved, question, secondary=secondary)
+    return {
+        "domain": top_domain,
+        "domains": [top_domain] + secondary_ids,
+        "also_matched": [d for d, _, _ in results[1:]
+                         if d not in secondary_ids],
+        "tools": tools,
+        "tools_denied": denied,
+        "retrieved_count": len(retrieved),
+        "context": context,
+    }
+
+
+# --- load_pack 404 tolerance ---
+# A bad manifest path in a remote registry should degrade that one pack, not
+# kill the whole answer. The routing table already tolerates this; load_pack
+# now does too.
+
+_load_pack_strict = load_pack
+
+
+def load_pack(domain_id, refresh=False, entry=None):
+    try:
+        return _load_pack_strict(domain_id, refresh=refresh, entry=entry)
+    except urllib.error.HTTPError as e:
+        print(f"  pack '{domain_id}' unavailable (HTTP {e.code}) — "
+              f"answering without it")
+        return {
+            "id": domain_id,
+            "source": (entry or {}).get("source", "core"),
+            "name": (entry or {}).get("name", domain_id),
+            "prompt": "",
+            "examples": "",
+            "tools": [],
+            "chunks": [],
+        }

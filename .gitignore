@@ -4,3 +4,7 @@ pack_cache/
 routing_cache.json
 *.bak
 *.bak2
+
+sources.json
+*.bak-multisource
+*.bak-404

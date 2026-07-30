@@ -3,8 +3,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import router, loader, llm, tools, core
 
-HOST = "127.0.0.1"
-PORT = int(os.environ.get("MODULAR_AI_PORT", 8000))
+HOST, PORT = "127.0.0.1", 8000
 UI_FILE = Path(__file__).parent / "ui.html"
 _table = None
 _lock = threading.Lock()

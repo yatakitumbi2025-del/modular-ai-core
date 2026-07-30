@@ -205,3 +205,132 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ===== multi-source (added by patch_multisource.py) =====
+# Loads packs from several repos instead of one. The single-source functions
+# above still work and are used as the fallback if sources.json is missing.
+#
+# Entry ids are namespaced source__pack so two repos can both ship a "math"
+# pack without colliding in the route table or the pack cache.
+
+SOURCES_FILE = Path(__file__).parent / "sources.json"
+
+DEFAULT_SOURCES = [
+    {"id": "core", "repo": f"{GITHUB_USER}/{REPO}@main",
+     "enabled": True, "allow_tools": True},
+]
+
+
+def load_sources():
+    """Read sources.json. Falls back to the original single source."""
+    if SOURCES_FILE.exists():
+        try:
+            data = json.loads(SOURCES_FILE.read_text())
+            srcs = data.get("sources") if isinstance(data, dict) else data
+            if srcs:
+                return srcs
+        except Exception as e:
+            print(f"  sources.json unreadable ({e}) - using default source")
+    return DEFAULT_SOURCES
+
+
+def source_base(repo):
+    """'owner/repo@branch' -> raw.githubusercontent base URL."""
+    spec = repo.strip()
+    branch = "main"
+    if "@" in spec:
+        spec, branch = spec.rsplit("@", 1)
+    return f"https://raw.githubusercontent.com/{spec}/{branch}"
+
+
+def allow_tools_map():
+    """source id -> whether the core trusts that source with tools."""
+    return {s["id"]: bool(s.get("allow_tools")) for s in load_sources()}
+
+
+def _entries_for_source(src):
+    """Build routing-table entries for one source. Raises if the repo is dead."""
+    sid = src["id"]
+    base = source_base(src["repo"])
+    registry = fetch_json(f"{base}/registry/index.json")
+
+    entries = []
+    for pack in registry.get("packs", []):
+        pid = pack["id"]
+        manifest_path = pack.get("manifest", f"packs/{pid}/pack.json")
+        entry = {
+            "id": f"{sid}__{pid}",
+            "pack_id": pid,
+            "source": sid,
+            "base": base,
+            "manifest": manifest_path,
+            "name": pack.get("name", pid),
+            "tags": pack.get("tags", []),
+            "keywords": [],
+            "profile": "",
+            "vector": None,
+        }
+        desc = pack.get("description", "")
+        try:
+            manifest = fetch_json(f"{base}/{manifest_path}")
+            routing = manifest.get("routing", {})
+            entry["keywords"] = routing.get("keywords", [])
+            desc = routing.get("description_for_router", desc)
+        except urllib.error.HTTPError as e:
+            print(f"  note: no manifest for '{entry['id']}' ({e.code})")
+
+        if not entry["keywords"]:
+            entry["keywords"] = [t.lower() for t in entry["tags"]]
+
+        # Same profile shape as the single-source builder: the router embeds
+        # name + description + keywords, not the description alone.
+        entry["profile"] = (
+            f"{entry['name']}. {desc} Keywords: {', '.join(entry['keywords'])}"
+        )
+        entries.append(entry)
+    return entries
+
+
+def build_routing_table(refresh=False):
+    """Multi-source table build. One dead repo must not kill startup."""
+    if CACHE_FILE.exists() and not refresh:
+        try:
+            table = json.loads(CACHE_FILE.read_text())
+        except Exception:
+            table = None
+        # Require "source" too, so an old single-source cache rebuilds.
+        if table and all(e.get("vector") and e.get("source") for e in table):
+            return table
+
+    print("Fetching registries from all enabled sources ...")
+    table = []
+    failed = []
+    for src in load_sources():
+        if not src.get("enabled", True):
+            print(f"  source '{src.get('id')}': disabled, skipping")
+            continue
+        try:
+            got = _entries_for_source(src)
+            table.extend(got)
+            print(f"  source '{src['id']}': {len(got)} pack(s)")
+        except Exception as e:
+            failed.append(src.get("id"))
+            print(f"  source '{src.get('id')}' FAILED: {e}")
+
+    if not table:
+        raise RuntimeError("no packs loaded from any source")
+    if failed:
+        print(f"  continuing without: {', '.join(str(f) for f in failed)}")
+
+    # One batched embed for every profile across every source.
+    try:
+        vectors = embed.embed([e["profile"] for e in table])
+        for e, v in zip(table, vectors):
+            e["vector"] = v
+        print(f"Embedded {len(table)} domain profiles for semantic routing.")
+    except Exception as ex:
+        print(f"  (could not embed domains: {ex} - will use keyword routing)")
+
+    CACHE_FILE.write_text(json.dumps(table, indent=2))
+    return table
