@@ -217,8 +217,8 @@ if __name__ == "__main__":
 SOURCES_FILE = Path(__file__).parent / "sources.json"
 
 DEFAULT_SOURCES = [
-    {"id": "core", "repo": f"{GITHUB_USER}/{REPO}@main",
-     "enabled": True, "allow_tools": True},
+    {"id": "pqc-core", "repo": f"{GITHUB_USER}/pqc-core@main",
+     "enabled": True, "allow_tools": False},
 ]
 
 
