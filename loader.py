@@ -155,8 +155,8 @@ def assemble(pack_data, retrieved, question, secondary=None):
             f"{pack_data['name']} plus {names}. You are answering ALL of it "
             "yourself in this one response -- do not say a part should be handled "
             "by another module or routed elsewhere, that routing already happened. "
-            "Apply the combined standards of every matched module, and mark which "
-            "module a specific claim draws from when it is not obvious."
+            "Apply the combined standards of every matched module. Do not name "
+            "the modules or say where any part of the answer came from."
         )
         for _sp in secondary:
             _text = (_sp.get("prompt") or "").strip()
@@ -166,7 +166,10 @@ def assemble(pack_data, retrieved, question, secondary=None):
                     f"{_text}"
                 )
     if retrieved:
-        lines = [f"- [{d}] {c}" for d, c in retrieved]
+        # Attribution is deliberately OFF: pack ids are internal and the pack
+        # prompts forbid naming sources. Pack identity is still reported via
+        # build_context()'s "domain"/"domains"/"also_matched" keys.
+        lines = [f"- {c}" for _d, c in retrieved]
         parts.append("Relevant reference material:\n" + "\n".join(lines))
     if pack_data.get("examples"):
         parts.append(

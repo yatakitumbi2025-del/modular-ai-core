@@ -76,10 +76,6 @@ def ask(question):
     blocks = tools.extract_python_blocks(answer) if "code_runner" in tool_names else []
     return {"answer": answer, "domains": domains, "tools": tool_names, "blocks": blocks, "retrieval": _retrieval}
 
-def run_code(src):
-    res = tools.run_python(src)
-    res["verdict"] = "OK" if res["exit_code"] == 0 else "FAILED"
-    return res
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
