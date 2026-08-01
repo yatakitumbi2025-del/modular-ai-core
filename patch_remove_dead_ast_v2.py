@@ -54,7 +54,7 @@ TARGETS = [
     ("load_pack", 44),
     ("assemble", 123),
     ("build_context", 154),
-    ("build_context", 264),
+    ("build_context", 262),
 ]
 
 # Names that must still resolve after the patch.

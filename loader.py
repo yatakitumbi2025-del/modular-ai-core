@@ -41,39 +41,6 @@ def fetch_text(url):
 
 
 # ---- Load (activate) a pack --------------------------------------------
-def load_pack(domain_id, refresh=False):
-    """Fetch and cache everything needed to activate one domain pack."""
-    CACHE_DIR.mkdir(exist_ok=True)
-    cache_file = CACHE_DIR / f"{domain_id}.json"
-    if cache_file.exists() and not refresh:
-        return json.loads(cache_file.read_text())
-
-    base = f"{router.CDN_BASE}/packs/{domain_id}"
-    manifest = router.fetch_json(f"{base}/pack.json")
-    files = manifest.get("files", {})
-
-    data = {
-        "id": manifest["id"],
-        "name": manifest["name"],
-        "prompt": "",
-        "examples": "",
-        "tools": manifest.get("tools", []),
-        "chunks": [],
-    }
-
-    if files.get("prompt"):
-        data["prompt"] = fetch_text(f"{base}/{files['prompt']}")
-    if files.get("examples"):
-        data["examples"] = fetch_text(f"{base}/{files['examples']}")
-    if files.get("vectors"):
-        try:
-            vectors = router.fetch_json(f"{base}/{files['vectors']}")
-            data["chunks"] = vectors.get("chunks", [])
-        except urllib.error.HTTPError:
-            pass  # pack has no knowledge base yet — fine
-
-    cache_file.write_text(json.dumps(data, indent=2))
-    return data
 
 
 # ---- Retrieve the most relevant knowledge chunks -----------------------
@@ -120,52 +87,9 @@ def retrieve(question, chunks, k=2):
 
 
 # ---- Assemble the model-ready context ----------------------------------
-def assemble(pack_data, retrieved, question):
-    parts = [pack_data["prompt"].strip()]
-
-    if retrieved:
-        parts.append(
-            "Relevant reference material:\n"
-            + "\n".join(f"- {chunk}" for chunk in retrieved)
-        )
-
-    if pack_data.get("examples"):
-        # Fence the examples and state plainly that they are NOT the question.
-        # Small models otherwise treat the Q/A pairs as a chat to continue,
-        # leaking made-up questions into the answer.
-        parts.append(
-            "The text between <EXAMPLES> tags below shows the desired STYLE only. "
-            "It is NOT the user's question. Do not answer it, repeat it, or invent "
-            "new question/answer pairs from it.\n"
-            "<EXAMPLES>\n" + pack_data["examples"].strip() + "\n</EXAMPLES>"
-        )
-
-    parts.append(
-        "Now answer ONLY the user's actual question below, in your own words, "
-        "matching the style above. Do not write 'Q:' or 'A:' labels, and do not "
-        "add extra questions of your own."
-    )
-
-    system = "\n\n".join(parts)
-    return {"system": system, "user": question}
 
 
 # ---- Tie router + loader together --------------------------------------
-def build_context(question, table, refresh=False):
-    results = router.route(question, table)
-    if not results:
-        return None
-    top_domain = results[0][0]          # highest-scoring domain
-    pack = load_pack(top_domain, refresh=refresh)
-    retrieved = retrieve(question, pack["chunks"])
-    context = assemble(pack, retrieved, question)
-    return {
-        "domain": top_domain,
-        "also_matched": [d for d, _, _ in results[1:]],
-        "tools": [t.get("name") for t in pack.get("tools", [])],
-        "retrieved_count": len(retrieved),
-        "context": context,
-    }
 
 
 # ---- CLI ----------------------------------------------------------------
@@ -259,37 +183,6 @@ def assemble(pack_data, retrieved, question, secondary=None):
     return {"system": "\n\n".join(parts), "user": question}
 
 
-def build_context(question, table, refresh=False):
-    results = router.route(question, table)
-    if not results:
-        return None
-    top_domain, top_score = results[0][0], results[0][1]
-    secondary_ids = []
-    for domain, score, _ in results[1:]:
-        if top_score > 0 and score >= top_score * SECONDARY_RATIO:
-            secondary_ids.append(domain)
-        if len(secondary_ids) >= MAX_SECONDARY:
-            break
-    primary = load_pack(top_domain, refresh=refresh)
-    secondary = [load_pack(d, refresh=refresh) for d in secondary_ids]
-    retrieved = [(top_domain, c) for c in retrieve(question, primary["chunks"], k=2)]
-    for pack in secondary:
-        retrieved += [(pack["id"], c) for c in retrieve(question, pack["chunks"], k=1)]
-    tools = []
-    for pack in [primary] + secondary:
-        for t in pack.get("tools", []):
-            n = t.get("name")
-            if n and n not in tools:
-                tools.append(n)
-    context = assemble(primary, retrieved, question, secondary=secondary)
-    return {
-        "domain": top_domain,
-        "domains": [top_domain] + secondary_ids,
-        "also_matched": [d for d, _, _ in results[1:] if d not in secondary_ids],
-        "tools": tools,
-        "retrieved_count": len(retrieved),
-        "context": context,
-    }
 
 
 # ===== multi-source (added by patch_multisource.py) =====
