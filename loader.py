@@ -297,7 +297,10 @@ def build_context(question, table, refresh=False):
                 tools.append(n)
 
     context = assemble(primary, retrieved, question, secondary=secondary)
+    _degraded = [p.get("id", "?") for p in [primary] + secondary
+                 if isinstance(p, dict) and p.get("degraded")]
     return {
+        "degraded": _degraded,
         "domain": top_domain,
         "domains": [top_domain] + secondary_ids,
         "also_matched": [d for d, _, _ in results[1:]

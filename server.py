@@ -69,6 +69,8 @@ def ask(question):
         except Exception as _e:
             print("retrieval skipped:", _e)
             _retrieval = "error"
+        if r.get("degraded"):
+            _retrieval += "|stale:" + ",".join(r["degraded"])
         domains = r.get("domains", [r["domain"]]); tool_names = r["tools"]
     answer = llm.generate(system, user)
     blocks = tools.extract_python_blocks(answer) if "code_runner" in tool_names else []
