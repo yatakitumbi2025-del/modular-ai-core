@@ -157,6 +157,21 @@ def extract_expressions(text):
     return exprs
 
 
+def compute_checks(answer_text):
+    """Recompute any arithmetic the model wrote; return formatted text or "".
+
+    Shared by the CLI (core.calc_and_show prints this) and the web path
+    (server.ask returns it as the "calc" field). Never raises.
+    """
+    results = []
+    for expr in extract_expressions(answer_text or ""):
+        try:
+            results.append((expr, safe_calc(expr)))
+        except Exception:
+            pass  # not real arithmetic, skip it
+    return format_calc(results) if results else ""
+
+
 def format_calc(results):
     """Render calculator output.
 

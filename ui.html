@@ -407,6 +407,8 @@ function renderAnswer(box, r){
   (r.blocks || []).forEach(src => {
     if(!shown.has(norm(src))) box.appendChild(codePanel(src, true));
   });
+  /* deterministic arithmetic check, same fixed format the CLI prints */
+  if(r.calc) box.appendChild(codePanel(r.calc, false));
 }
 
 /* ---------- ask ---------- */

@@ -74,7 +74,7 @@ def ask(question):
         domains = r.get("domains", [r["domain"]]); tool_names = r["tools"]
     answer = llm.generate(system, user)
     blocks = tools.extract_python_blocks(answer) if "code_runner" in tool_names else []
-    return {"answer": answer, "domains": domains, "tools": tool_names, "blocks": blocks, "retrieval": _retrieval}
+    return {"answer": answer, "domains": domains, "tools": tool_names, "blocks": blocks, "retrieval": _retrieval, "calc": tools.compute_checks(answer)}
 
 
 class H(BaseHTTPRequestHandler):

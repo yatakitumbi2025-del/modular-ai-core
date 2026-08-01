@@ -80,14 +80,9 @@ def run_and_verify(answer_text, system):
 
 def calc_and_show(answer_text):
     """Evaluate any arithmetic the model wrote and show the exact results."""
-    results = []
-    for expr in tools.extract_expressions(answer_text):
-        try:
-            results.append((expr, tools.safe_calc(expr)))
-        except Exception:
-            pass  # not real arithmetic — skip it
-    if results:
-        print("\n" + tools.format_calc(results))
+    out = tools.compute_checks(answer_text)
+    if out:
+        print("\n" + out)
 
 
 def answer(question, table):
