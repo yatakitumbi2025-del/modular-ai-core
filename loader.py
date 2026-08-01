@@ -241,14 +241,24 @@ def load_pack(domain_id, refresh=False, entry=None):
         data["prompt"] = fetch_text(f"{pack_base}/{files['prompt']}")
     if files.get("examples"):
         data["examples"] = fetch_text(f"{pack_base}/{files['examples']}")
+    _vec_failed = False
     if files.get("vectors"):
         try:
             vectors = router.fetch_json(f"{pack_base}/{files['vectors']}")
             data["chunks"] = vectors.get("chunks", [])
-        except urllib.error.HTTPError:
-            pass  # pack has no knowledge base yet - fine
+        except (urllib.error.HTTPError, urllib.error.URLError) as _ve:
+            # The pack DECLARED a vectors file and we failed to get it. That is a
+            # transient fetch problem, not "no knowledge base yet". Caching now
+            # would pin an empty pack for the whole TTL, so do not cache.
+            _vec_failed = True
+            data["degraded"] = "vectors-fetch-failed"
+            router._warn_degraded(
+                f"vectors fetch failed for {domain_id} ({_ve}) - "
+                f"not caching, will retry next request"
+            )
 
-    cache_file.write_text(json.dumps(data, indent=2))
+    if not _vec_failed:
+        cache_file.write_text(json.dumps(data, indent=2))
     return data
 
 
