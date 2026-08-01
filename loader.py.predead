@@ -215,6 +215,8 @@ def main():
         handle(q)
 
 
+if __name__ == "__main__":
+    main()
 
 
 # ===== multi-domain merging (overrides the single-pack versions above) =====
@@ -455,7 +457,3 @@ def load_pack(domain_id, refresh=False, entry=None):
             "chunks": [],
             "degraded": "no-pack",
         }
-
-
-if __name__ == "__main__":
-    main()
