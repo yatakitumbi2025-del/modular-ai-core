@@ -28,24 +28,51 @@ def ask(question):
     if r is None:
         system, user = core.GENERAL_SYSTEM, question
         domains, tool_names = ["general"], []
+        _retrieval = "unrouted"
     else:
         system = r["context"]["system"]; user = r["context"]["user"]
+        _retrieval = "unset"
         try:
             import retrieve as _rt
-            _pid = r.get("domain") or (r.get("domains") or [None])[0]
-            _hits = _rt.retrieve(question, _pid, k=3) if _pid else []
+            _PER_PACK = 4
+            _TOTAL = 6
+            _pids = r.get("domains") or ([r["domain"]] if r.get("domain") else [])
+            _pool = []
+            for _p in _pids:
+                try:
+                    for _s, _t in _rt.retrieve(question, _p, k=_PER_PACK):
+                        _pool.append((_s, _t))
+                except Exception as _pe:
+                    print("retrieval failed for", _p, ":", _pe)
+            _seen = set()
+            _hits = []
+            for _s, _t in sorted(_pool, key=lambda x: -x[0]):
+                if _t in _seen:
+                    continue
+                _seen.add(_t)
+                _hits.append((_s, _t))
+                if len(_hits) >= _TOTAL:
+                    break
             if _hits:
                 _ref = "\n\n".join(t for _, t in _hits)
-                system = ("Background knowledge you have. Treat it as your own knowledge and "
-                          "knowledge. If it does not cover the question, say so plainly "
-                          "rather than inventing API names, flags, or version numbers. Never mention packs, modules, sources, or where this information came from. Do not append notes labelled by pack name.\n\n"
-                          + _ref + "\n\n---\n\n" + system)
+                system = (
+                    "Background knowledge you have. Treat it as your own knowledge and "
+                    "answer directly from it. If it does not cover the question, say so "
+                    "plainly rather than inventing API names, flags, or version numbers. "
+                    "Never mention packs, modules, sources, or where this information "
+                    "came from. Do not append notes labelled by pack name.\n\n"
+                    + _ref + "\n\n---\n\n" + system
+                )
+                _retrieval = "ok:%d/%d" % (len(_hits), len(_pids))
+            else:
+                _retrieval = "empty" if _pids else "nopack"
         except Exception as _e:
             print("retrieval skipped:", _e)
+            _retrieval = "error"
         domains = r.get("domains", [r["domain"]]); tool_names = r["tools"]
     answer = llm.generate(system, user)
     blocks = tools.extract_python_blocks(answer) if "code_runner" in tool_names else []
-    return {"answer": answer, "domains": domains, "tools": tool_names, "blocks": blocks}
+    return {"answer": answer, "domains": domains, "tools": tool_names, "blocks": blocks, "retrieval": _retrieval}
 
 def run_code(src):
     res = tools.run_python(src)

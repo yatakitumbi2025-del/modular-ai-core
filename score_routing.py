@@ -50,6 +50,8 @@ for src in json.load(open(SRC))["sources"]:
 APP = "pqc-application__pqc_application"
 IMP = "pqc-application__pqc_implementation"
 QUERIES = [
+    ("I need to sign firmware updates. Show me the code "
+     "and tell me how to roll it out.", {IMP, APP}),
     ("Show me Kyber key exchange example",           IMP),
     ("Why does decap_secret fail in my script",      IMP),
     ("How do I enable hybrid PQC in nginx",          APP),
@@ -64,11 +66,19 @@ print(f"\nScoring {len(table)} packs against {len(QUERIES)} queries\n")
 vecs = embed.embed([e["profile"] for e in table] + [q for q, _ in QUERIES])
 pvecs, qvecs = vecs[:len(table)], vecs[len(table):]
 
+def _matches(top, second, expected):
+    """A set expectation means every id in it must be in the top two.
+    A plain string keeps the original single-winner behaviour."""
+    if isinstance(expected, (set, frozenset)):
+        return expected <= {top[1], second[1]}
+    return top[1] == expected
+
+
 for (q, expected), qv in zip(QUERIES, qvecs):
     scores = sorted(((embed.cosine(qv, pv), e["id"])
                      for e, pv in zip(table, pvecs)), reverse=True)
     top, second = scores[0], scores[1]
-    flag = "OK      " if top[1] == expected else "MISROUTE"
+    flag = "OK      " if _matches(top, second, expected) else "MISROUTE"
     print(f"{flag} margin={top[0]-second[0]:+.3f}  {q}")
     for s, pid in scores:
         print(f"      {s:.3f}  {pid}")

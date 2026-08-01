@@ -8,3 +8,9 @@ routing_cache.json
 sources.json
 *.bak-multisource
 *.bak-404
+*.bak
+*.bak2
+*.bak3
+*.bak4
+pack_cache/
+routing_cache.json

@@ -431,9 +431,14 @@ async function ask(){
       t2.appendChild(el('div','reply err', r.error));
     } else {
       const route = el('div','route');
-      route.appendChild(el('span', null, (r.domains || ['general'])[0]));
+      route.appendChild(el('span', null,
+        (r.domains || ['general'])
+          .map(d => d.split('__').pop())
+          .join(' + ')));
       route.appendChild(el('span','rule'));
       if((r.tools || []).length) route.appendChild(el('span','tools', r.tools.join(' · ')));
+      if(r.retrieval) route.appendChild(el('span','rule'));
+      if(r.retrieval) route.appendChild(el('span','tools', r.retrieval));
       t2.appendChild(route);
       renderAnswer(t2, r);
     }
